@@ -1,0 +1,138 @@
+// server.js
+
+const express = require('express');
+const app = express();
+const PORT = 3000;
+const LOCK_DURATION_MS = 60 * 1000; // 1 minute lock duration
+
+// Middleware to parse JSON request bodies (not strictly needed for these POSTs, but good practice)
+app.use(express.json());
+
+// In-memory data store for seats
+// 'available': The seat is free to lock/book.
+// 'locked': The seat is temporarily reserved, and has a lockUntil timestamp.
+// 'booked': The seat is permanently reserved.
+let seats = {
+    "1": { status: "available", lockUntil: null, userId: null },
+    "2": { status: "available", lockUntil: null, userId: null },
+    "3": { status: "available", lockUntil: null, userId: null },
+    "4": { status: "available", lockUntil: null, userId: null },
+    "5": { status: "available", lockUntil: null, userId: null }
+    // Note: The POST /confirm/6 example in the image seems to imply seat ID 6, 
+    // but the success message says "Seat 5 booked successfully!", so we'll 
+    // assume the initial list is correct and use the seat data structure accordingly.
+};
+
+// --- Helper Function: Check Lock Expiry ---
+// Checks if a lock on a seat is still valid, and updates the status if it has expired.
+const checkLockExpiry = (seatId) => {
+    const seat = seats[seatId];
+    const now = Date.now();
+
+    if (seat.status === 'locked' && seat.lockUntil && seat.lockUntil < now) {
+        // Lock has expired
+        seat.status = 'available';
+        seat.lockUntil = null;
+        seat.userId = null;
+        console.log(`Lock for Seat ${seatId} expired.`);
+        return false; // Lock is expired
+    }
+    return seat.status === 'locked'; // Lock is still active (true) or seat isn't locked (false)
+};
+
+// ----------------------------------------------------------
+// 1. GET /seats - View Available Seats (Matches first image)
+// ----------------------------------------------------------
+app.get('/seats', (req, res) => {
+    // Before responding, check all locks for expiry
+    const seatStatuses = {};
+    for (const seatId in seats) {
+        checkLockExpiry(seatId);
+        // Only show simplified status for the user
+        seatStatuses[seatId] = { status: seats[seatId].status };
+    }
+    res.status(200).json(seatStatuses);
+});
+
+// ----------------------------------------------------------
+// 2. POST /lock/:id - Temporarily Lock a Seat (Matches second image)
+// ----------------------------------------------------------
+app.post('/lock/:id', (req, res) => {
+    const seatId = req.params.id;
+    const seat = seats[seatId];
+    // In a real app, you'd get the userId from the session/token. For this demo, we'll use a placeholder.
+    const lockingUserId = req.body.userId || `user_${Math.floor(Math.random() * 100)}`; 
+
+    if (!seat) {
+        return res.status(404).json({ message: `Seat ${seatId} not found.` });
+    }
+
+    // Check lock expiry first
+    checkLockExpiry(seatId);
+
+    if (seat.status === 'booked') {
+        return res.status(400).json({ message: `Seat ${seatId} is already booked.` });
+    }
+
+    if (seat.status === 'locked') {
+        return res.status(409).json({ message: `Seat ${seatId} is already locked until ${new Date(seat.lockUntil).toLocaleTimeString()}.` });
+    }
+
+    // Lock the seat
+    seat.status = 'locked';
+    seat.lockUntil = Date.now() + LOCK_DURATION_MS;
+    seat.userId = lockingUserId;
+
+    res.status(200).json({
+        message: `Seat ${seatId} locked successfully. Confirm within ${LOCK_DURATION_MS / 1000} seconds.`,
+        lockUntil: new Date(seat.lockUntil)
+    });
+});
+
+// ----------------------------------------------------------
+// 3. POST /confirm/:id - Confirm a Booking (Matches third and fourth images)
+// ----------------------------------------------------------
+app.post('/confirm/:id', (req, res) => {
+    const seatId = req.params.id;
+    const seat = seats[seatId];
+    // For this demo, we assume the user is confirming the seat they just locked.
+    // In a real app, you would check if the current session/token matches the seat.userId.
+    const confirmingUserId = req.body.userId || seat?.userId; 
+
+    if (!seat) {
+        return res.status(404).json({ message: `Seat ${seatId} not found.` });
+    }
+
+    // Check lock expiry first
+    checkLockExpiry(seatId);
+
+    // Check if the seat is in a confirmable state (locked by the same user or available but status not 'booked')
+    if (seat.status === 'available' || seat.status === 'booked') {
+        // This handles the error scenario in the fourth image:
+        // Seat is available (lock expired) or already booked.
+        const msg = seat.status === 'available'
+            ? 'Seat is not locked and cannot be booked.'
+            : `Seat ${seatId} is already booked.`;
+
+        return res.status(400).json({ message: msg });
+    }
+
+    // At this point, seat.status MUST be 'locked' and the lock is active.
+    // In a real system, you would verify the confirmingUserId === seat.userId here.
+    
+    // Confirm the booking
+    seat.status = 'booked';
+    seat.lockUntil = null;
+    // Keep userId for booked status if needed, or clear it if it's just for lock tracking.
+    // We'll keep it for demonstration.
+    
+    res.status(200).json({
+        message: `Seat ${seatId} booked successfully!`
+    });
+});
+
+
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
