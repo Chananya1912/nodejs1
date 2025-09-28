@@ -1,0 +1,99 @@
+// server.js
+
+const express = require('express');
+const app = express();
+const PORT = 3000;
+
+// Middleware to parse JSON request bodies
+app.use(express.json());
+
+// In-memory array to store card data
+// Initialize with the data shown in the first image for consistency
+let cards = [
+    { "id": 1, "suit": "Hearts", "value": "Ace" },
+    { "id": 2, "suit": "Spades", "value": "King" },
+    { "id": 3, "suit": "Diamonds", "value": "Queen" }
+];
+
+// Simple counter for new card IDs
+let nextId = 4;
+
+// ------------------------------------------------------------------
+// 1. GET /cards - List all cards
+// ------------------------------------------------------------------
+app.get('/cards', (req, res) => {
+    // Respond with the entire collection of cards
+    res.status(200).json(cards);
+});
+
+// ------------------------------------------------------------------
+// 2. GET /cards/:id - Retrieve a specific card by ID (Used in the second image for /cards/2)
+// ------------------------------------------------------------------
+app.get('/cards/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const card = cards.find(c => c.id === id);
+
+    if (card) {
+        // Found the card, respond with 200 OK
+        res.status(200).json(card);
+    } else {
+        // Card not found, respond with 404 Not Found
+        res.status(404).json({ message: `Card with ID ${id} not found.` });
+    }
+});
+
+// ------------------------------------------------------------------
+// 3. POST /cards - Add a new card (Matches the third image)
+// ------------------------------------------------------------------
+app.post('/cards', (req, res) => {
+    // The request body should contain "suit" and "value"
+    const { suit, value } = req.body;
+
+    // Basic validation
+    if (!suit || !value) {
+        return res.status(400).json({ message: "Missing 'suit' or 'value' in request body." });
+    }
+
+    // Create the new card object
+    const newCard = {
+        id: nextId++, // Assign and increment ID
+        suit,
+        value
+    };
+
+    // Add the new card to the in-memory collection
+    cards.push(newCard);
+
+    // Respond with 201 Created and the newly created card object
+    res.status(201).json(newCard);
+});
+
+// ------------------------------------------------------------------
+// 4. DELETE /cards/:id - Delete a card by ID (Matches the fourth image for /cards/1)
+// ------------------------------------------------------------------
+app.delete('/cards/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const initialLength = cards.length;
+
+    // Find the card to be removed for the response
+    const removedCard = cards.find(c => c.id === id);
+
+    // Filter out the card with the given ID
+    cards = cards.filter(c => c.id !== id);
+
+    if (cards.length < initialLength) {
+        // Card was found and removed, respond with 200 OK
+        res.status(200).json({
+            message: `Card with ID ${id} removed.`,
+            removed: removedCard // Include the removed card object as shown in the image
+        });
+    } else {
+        // Card was not found, respond with 404 Not Found
+        res.status(404).json({ message: `Card with ID ${id} not found.` });
+    }
+});
+
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
